@@ -4,18 +4,20 @@ import PostView from './components/PostView';
 import NewPostForm from './components/NewPostForm';
 import { io } from 'socket.io-client';
 
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:4000';
-const socket = io(SOCKET_URL);
+// ✅ Updated socket configuration
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL;   // remove localhost fallback
+const socket = io(SOCKET_URL, {
+    transports: ['websocket', 'polling'],  // enable both in case WebSocket upgrade fails
+    withCredentials: true,
+});
 
 export default function App() {
     const [selected, setSelected] = useState(null);
     const [postsChanged, setPostsChanged] = useState(0);
 
     useEffect(() => {
-        socket.on('connect', () => console.log('connected to socket', socket.id));
-        socket.on('post:created', (post) => {
-            setPostsChanged((n) => n + 1);
-        });
+        socket.on('connect', () => console.log('✅ Connected to socket:', socket.id));
+        socket.on('post:created', () => setPostsChanged(n => n + 1));
         socket.on('post:updated', () => setPostsChanged(n => n + 1));
         socket.on('post:reply', () => setPostsChanged(n => n + 1));
 
