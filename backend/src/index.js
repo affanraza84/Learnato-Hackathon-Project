@@ -19,7 +19,7 @@ if (!FRONTEND_URL) {
 
 const io = new Server(server, {
   cors: {
-    origin: FRONTEND_URL, 
+    origin: FRONTEND_URL,
     methods: ["GET", "POST"],
     credentials: true,
     transports: ["websocket", "polling"],
@@ -44,6 +44,7 @@ app.use(
 
 app.use(express.json());
 app.use(morgan("dev"));
+
 
 const postsRouterFactory = require("./routes/posts");
 app.use("/api/posts", postsRouterFactory(io));

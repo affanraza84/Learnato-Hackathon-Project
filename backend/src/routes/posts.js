@@ -1,58 +1,88 @@
-require('dotenv').config();
 const express = require('express');
-const http = require('http');
-const cors = require('cors');
-const mongoose = require('mongoose');
-const morgan = require('morgan');
-const { Server } = require('socket.io');
+const router = express.Router();
+const Post = require('../models/Post');
 
-const app = express();
-const server = http.createServer(app);
+module.exports = (io) => {
+  const socketUtils = require('../utils/socket');
 
-const PORT = process.env.PORT || 4000;
-const MONGO_URL = process.env.MONGO_URL;
-const CORS_ORIGIN = process.env.CORS_ORIGIN;
-
-const io = new Server(server, {
-    cors: {
-        origin: CORS_ORIGIN,
-        methods: ['GET', 'POST'],
-        credentials: true,
+  // Create post
+  router.post('/', async (req, res) => {
+    try {
+      const { title, content, author } = req.body;
+      const post = new Post({ title, content, author });
+      await post.save();
+      socketUtils.emitNewPost(io, post);
+      res.status(201).json(post);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
     }
-});
+  });
 
-io.on('connection', (socket) => {
-    console.log('Websocket connected -> ID:', socket.id);
+  // Get all posts, with optional sort param (votes, date)
+  router.get('/', async (req, res) => {
+    try {
+      const sort = req.query.sort === 'votes' ? { votes: -1 } : { createdAt: -1 };
+      const posts = await Post.find().sort(sort).lean();
+      res.json(posts);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
-    socket.on('disconnect', () => {
-        console.log('Websocket disconnected -> ID:', socket.id);
-    });
-});
+  // Get single post
+  router.get('/:id', async (req, res) => {
+    try {
+      const post = await Post.findById(req.params.id).lean();
+      if (!post) return res.status(404).json({ error: 'Not found' });
+      res.json(post);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
-app.use(cors({
-    origin: CORS_ORIGIN,
-    methods: ["GET", "POST", "PUT", "DELETE"],
-    credentials: true,
-}));
+  // Add reply
+  router.post('/:id/reply', async (req, res) => {
+    try {
+      const { author, content } = req.body;
+      const post = await Post.findById(req.params.id);
+      if (!post) return res.status(404).json({ error: 'Not found' });
+      const reply = { author: author || 'Anonymous', content };
+      post.replies.push(reply);
+      await post.save();
+      socketUtils.emitNewReply(io, { postId: post._id, reply });
+      res.json({ postId: post._id, reply });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
-app.use(express.json());
-app.use(morgan('dev'));
+  // Upvote
+  router.post('/:id/upvote', async (req, res) => {
+    try {
+      const post = await Post.findById(req.params.id);
+      if (!post) return res.status(404).json({ error: 'Not found' });
+      post.votes += 1;
+      await post.save();
+      socketUtils.emitUpdatedPost(io, post);
+      res.json({ votes: post.votes });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
-const postsRouterFactory = require('./routes/posts');
-app.use('/api/posts', postsRouterFactory(io));
+  // Mark answered (instructor)
+  router.post('/:id/answer', async (req, res) => {
+    try {
+      const post = await Post.findById(req.params.id);
+      if (!post) return res.status(404).json({ error: 'Not found' });
+      post.answered = true;
+      await post.save();
+      socketUtils.emitUpdatedPost(io, post);
+      res.json(post);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
-app.get('/health', (req, res) => res.send("OK"));
-app.get('/', (req, res) => res.send({ ok: true, message: 'Learnato Forum API' }));
-
-mongoose.connect(MONGO_URL, { useNewUrlParser: true, useUnifiedTopology: true })
-    .then(() => {
-        server.listen(PORT, () => {
-            console.log(`Backend running on port ${PORT}`);
-            console.log(`Allowed Origin: ${FRONTEND_URL}`);
-            console.log(`MongoDB Connected Successfully`);
-        });
-    })
-    .catch(err => {
-        console.error('MongoDB Connection Error:', err);
-        process.exit(1);
-    });
+  return router;
+};
