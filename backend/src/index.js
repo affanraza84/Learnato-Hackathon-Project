@@ -9,35 +9,44 @@ const { Server } = require("socket.io");
 const app = express();
 const server = http.createServer(app);
 
-// ✅ Load from environment or fallback
+// -------------------------
+// ✅ Environment Variables
+// -------------------------
 const PORT = process.env.PORT || 4000;
-const MONGO_URL = process.env.MONGO_URL || "mongodb://localhost:27017/learnato_forum";
-const CORS_ORIGIN = process.env.CORS_ORIGIN || "*";  // example: https://learnato-frontend.vercel.app
+const MONGO_URL = process.env.MONGO_URL;
+const FRONTEND_URL = process.env.FRONTEND_URL;  // 👉 REQUIRED (Vercel frontend URL)
 
-// ✅ Updated Socket.io configuration (fixes Vercel + Render CORS issues)
+if (!FRONTEND_URL) {
+  console.warn("⚠️ FRONTEND_URL not provided. Add it in Render Env Vars.");
+}
+
+// -------------------------
+// ✅ Socket.io Configuration (Fixes Vercel CORS / polling)
+// -------------------------
 const io = new Server(server, {
   cors: {
-    origin: CORS_ORIGIN,              // MUST be your frontend URL (no trailing slash)
+    origin: FRONTEND_URL,  // ✅ must be EXACT frontend domain (no *)
     methods: ["GET", "POST"],
     credentials: true,
-    transports: ["websocket", "polling"], // Allow websocket + fallback polling
+    transports: ["websocket", "polling"], // websocket first
   },
-  allowEIO3: true, // supports older clients
 });
 
-// 🔥 Real-time socket listeners
+// Real-time listeners
 io.on("connection", (socket) => {
-  console.log("✅ Socket connected: ", socket.id);
+  console.log("✅ Socket connected:", socket.id);
 
   socket.on("disconnect", () => {
-    console.log("❌ Socket disconnected: ", socket.id);
+    console.log("❌ Socket disconnected:", socket.id);
   });
 });
 
+// -------------------------
 // ✅ Middleware
+// -------------------------
 app.use(
   cors({
-    origin: CORS_ORIGIN,
+    origin: FRONTEND_URL, // ✅ whitelist exact Vercel domain
     methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true,
   })
@@ -46,28 +55,34 @@ app.use(
 app.use(express.json());
 app.use(morgan("dev"));
 
+// -------------------------
 // ✅ API Routes
+// -------------------------
 const postsRouterFactory = require("./routes/posts");
 app.use("/api/posts", postsRouterFactory(io));
 
-// Health check endpoint
-app.get("/", (req, res) => {
-  res.send({ ok: true, message: "✅ Learnato Forum Backend Running" });
+// Health check
+app.get("/", (_req, res) => {
+  res.status(200).json({
+    ok: true,
+    message: "✅ Learnato Forum Backend Running Successfully",
+  });
 });
 
-// ✅ MongoDB Connection + Listen
+// -------------------------
+// ✅ MongoDB + Server Start
+// -------------------------
 mongoose
-  .connect(MONGO_URL, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  })
+  .connect(MONGO_URL)
   .then(() => {
-    console.log("✅ Successfully connected to MongoDB");
-    server.listen(PORT, () =>
-      console.log(`🚀 Backend running on port ${PORT}`)
-    );
+    console.log("✅ Connected to MongoDB");
+
+    server.listen(PORT, () => {
+      console.log(`🚀 Backend & WebSocket running on PORT ${PORT}`);
+      console.log(`🌐 Allowed Origin: ${FRONTEND_URL}`);
+    });
   })
-  .catch((err) => {
-    console.error("❌ MongoDB connection failed", err);
+  .catch((error) => {
+    console.error("❌ MongoDB Connection Failed:", error);
     process.exit(1);
   });
