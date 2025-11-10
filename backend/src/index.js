@@ -22,7 +22,12 @@ io.on('connection', (socket) => {
     socket.on('disconnect', () => console.log('socket disconnected', socket.id));
 });
 
-app.use(cors({ origin: CORS_ORIGIN }));
+app.use(cors({
+    origin: CORS_ORIGIN,
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    credentials: true
+}));
+
 app.use(express.json());
 app.use(morgan('dev'));
 
